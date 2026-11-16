@@ -3,6 +3,7 @@
 import os
 import socket
 import struct
+import sys
 import threading
 import time
 from pathlib import Path
@@ -25,7 +26,14 @@ class TFTPServer:
                  get_config_func: Optional[Callable[[], dict]] = None):
         self.bind_ip = bind_ip
         self.port = port
-        self.tftp_root = tftp_root or Path("tftp_root")
+        if tftp_root:
+            self.tftp_root = tftp_root
+        else:
+            base_dir = Path(getattr(sys, "_MEIPASS", "."))
+            if (base_dir / "tftp_root").exists():
+                self.tftp_root = base_dir / "tftp_root"
+            else:
+                self.tftp_root = Path("tftp_root")
         self.fallback_root = Path("cisco_tftp_example/tftp_files")
         self.on_log = on_log or (lambda msg: None)
         self.on_phone_detected = on_phone_detected or (lambda mac, ip: None)
