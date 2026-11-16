@@ -3,6 +3,8 @@
 [![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/GUI-PyQt6-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
 [![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)]()
+[![Release](https://img.shields.io/github/v/release/ctellolasalle/cp-8831_handsfree_pc?color=brightgreen)](https://github.com/ctellolasalle/cp-8831_handsfree_pc/releases/latest)
+[![Download](https://img.shields.io/badge/Descargar-Cisco__CP8831__Handsfree.exe-blueviolet?logo=windows)](https://github.com/ctellolasalle/cp-8831_handsfree_pc/releases/download/v1.0.0/Cisco_CP8831_Handsfree.exe)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 
 Aplicación de escritorio **Standalone** desarrollada en **Python** con **PyQt6** que transforma una estación de conferencia para salas **Cisco Unified IP Conference Phone 8831 (CP-8831)** en un sistema de altavoz y micrófono manos libres de alta fidelidad para PC.
