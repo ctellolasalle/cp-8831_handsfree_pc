@@ -214,21 +214,34 @@ class TFTPServer:
         if fn_upper == "DIALPLAN.XML" or fn_upper == "DIALPLAN.XML.SGN":
             return generate_dialplan_xml().encode("utf-8")
 
-        # Buscar en tftp_root
-        local_path = self.tftp_root / filename
+        # 1. Buscar en tftp_root (directo y normalizado)
+        norm_name = filename.replace("/", os.sep).replace("\\", os.sep)
+        local_path = self.tftp_root / norm_name
         if local_path.is_file():
             return local_path.read_bytes()
 
-        # Buscar en fallback_root
-        fallback_path = self.fallback_root / filename
+        # 2. Buscar insensible a mayúsculas/minúsculas en tftp_root
+        if self.tftp_root.exists():
+            clean_search = filename.replace("\\", "/").lower()
+            for f in self.tftp_root.rglob("*"):
+                if f.is_file():
+                    rel = str(f.relative_to(self.tftp_root)).replace("\\", "/").lower()
+                    if rel == clean_search or f.name.lower() == Path(norm_name).name.lower():
+                        return f.read_bytes()
+
+        # 3. Buscar en fallback_root
+        fallback_path = self.fallback_root / norm_name
         if fallback_path.is_file():
             return fallback_path.read_bytes()
 
-        # Buscar insensitive en fallback
+        # 4. Buscar insensible en fallback_root
         if self.fallback_root.exists():
+            clean_search = filename.replace("\\", "/").lower()
             for f in self.fallback_root.rglob("*"):
-                if f.is_file() and f.name.lower() == filename.lower():
-                    return f.read_bytes()
+                if f.is_file():
+                    rel = str(f.relative_to(self.fallback_root)).replace("\\", "/").lower()
+                    if rel == clean_search or f.name.lower() == Path(norm_name).name.lower():
+                        return f.read_bytes()
 
         return None
 
