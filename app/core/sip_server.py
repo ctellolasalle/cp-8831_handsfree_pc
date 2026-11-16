@@ -28,6 +28,7 @@ class SIPServer:
         # Estado del teléfono registrado
         self.phone_info: Optional[dict] = None
         self.phone_last_seen = 0.0
+        self.phone_tcp_sock: Optional[socket.socket] = None
 
         # Estado de la llamada activa
         self.is_in_call = False
@@ -131,18 +132,25 @@ class SIPServer:
 
                 # Parsear mensajes delimitados por Content-Length
                 while "\r\n\r\n" in buffer:
+                    buffer = buffer.lstrip("\r\n ")
+                    if not buffer:
+                        break
                     header_part, body_candidate = buffer.split("\r\n\r\n", 1)
                     cl_match = re.search(r"Content-Length:\s*(\d+)", header_part, re.IGNORECASE)
                     content_len = int(cl_match.group(1)) if cl_match else 0
 
-                    if len(body_candidate.encode("utf-8")) >= content_len:
-                        msg_text = header_part + "\r\n\r\n" + body_candidate[:content_len]
-                        buffer = body_candidate[content_len:]
+                    body_bytes = body_candidate.encode("utf-8")
+                    if len(body_bytes) >= content_len:
+                        body_actual = body_bytes[:content_len].decode("utf-8", errors="replace")
+                        msg_text = header_part + "\r\n\r\n" + body_actual
+                        buffer = body_bytes[content_len:].decode("utf-8", errors="replace")
                         self._process_sip_message(msg_text, addr, transport="TCP", sock=client_sock)
                     else:
                         break
             except Exception:
                 break
+        if self.phone_tcp_sock == client_sock:
+            self.phone_tcp_sock = None
         try:
             client_sock.close()
         except Exception:
@@ -159,7 +167,7 @@ class SIPServer:
 
         # Identificar si es Request o Response
         if first_line.startswith("SIP/2.0"):
-            self._handle_response(first_line, headers, body, addr, transport)
+            self._handle_response(first_line, headers, body, addr, transport, sock)
         else:
             method = first_line.split(" ")[0].upper()
             if method == "REGISTER":
@@ -216,12 +224,15 @@ class SIPServer:
 
         self.phone_info = {
             "ip": addr[0],
-            "port": port,
+            "port": 5060,  # Puerto estándar SIP del teléfono
+            "client_port": addr[1],
             "transport": transport,
             "extension": ext,
             "user_agent": user_agent,
             "registered_at": time.time()
         }
+        if transport == "TCP":
+            self.phone_tcp_sock = sock
         self.phone_last_seen = time.time()
         self.log(f"Teléfono registrado: Ext {ext} desde {addr[0]}:{port} vía {transport} ({user_agent})")
         self.on_phone_registered(self.phone_info)
@@ -343,7 +354,7 @@ class SIPServer:
         self.active_dialog = None
         self.on_call_state_changed("disconnected", {"reason": "Llamada cancelada"})
 
-    def _handle_response(self, first_line: str, headers: dict, body: str, addr: tuple, transport: str):
+    def _handle_response(self, first_line: str, headers: dict, body: str, addr: tuple, transport: str, sock: Optional[socket.socket] = None):
         code_str = first_line.split(" ")[1]
         code = int(code_str) if code_str.isdigit() else 0
 
@@ -352,10 +363,9 @@ class SIPServer:
         if code == 200 and "INVITE" in headers.get("CSeq", ""):
             # Cisco aceptó nuestra llamada por altavoz (AutoAnswer)
             remote_rtp = self._parse_sdp(body)
-            to_tag = re.search(r"tag=([a-zA-Z0-9_-]+)", headers.get("To", "")).group(1) if "tag=" in headers.get("To", "") else ""
+            to_header = headers.get("To", "")
             
             if self.active_dialog:
-                self.active_dialog["remote_tag"] = to_tag
                 self.active_dialog["remote_ip"] = remote_rtp.get("ip", addr[0])
                 self.active_dialog["remote_rtp_port"] = remote_rtp.get("port", 16384)
                 self.active_dialog["codec_pt"] = remote_rtp.get("pt", 0)
@@ -366,12 +376,12 @@ class SIPServer:
                     f"Via: SIP/2.0/{transport} {self.bind_ip}:{self.sip_port};branch=z9hG4bK{os.urandom(4).hex()}\r\n"
                     f"Max-Forwards: 70\r\n"
                     f"From: <sip:handsfree@{self.bind_ip}:{self.sip_port}>;tag={self.active_dialog['local_tag']}\r\n"
-                    f"To: <sip:{self.phone_info.get('extension', '8831')}@{addr[0]}>;tag={to_tag}\r\n"
+                    f"To: {to_header}\r\n"
                     f"Call-ID: {self.active_dialog['call_id']}\r\n"
                     f"CSeq: {self.active_dialog['cseq_num']} ACK\r\n"
                     f"Content-Length: 0\r\n\r\n"
                 )
-                self._send_to_phone(ack_pkt)
+                self._send_to_phone(ack_pkt, sock=sock)
 
                 self.is_in_call = True
                 self.log(f"Llamada establecida exitosamente (Auto-Answer activado). RTP hacia {self.active_dialog['remote_ip']}:{self.active_dialog['remote_rtp_port']}")
@@ -392,10 +402,10 @@ class SIPServer:
         sdp_bytes = sdp.encode("utf-8")
 
         target_ip = self.phone_info["ip"]
-        target_port = self.phone_info["port"]
         transport = self.phone_info.get("transport", "TCP")
 
-        remote_uri = f"sip:{extension}@{target_ip}:{target_port}"
+        # El URI SIP de destino estándar hacia el teléfono
+        remote_uri = f"sip:{extension}@{target_ip}"
 
         self.active_dialog = {
             "call_id": call_id,
@@ -406,14 +416,14 @@ class SIPServer:
             "remote_rtp_port": 16384,
             "codec_pt": 0,
             "transport": transport,
-            "addr": (target_ip, target_port),
+            "addr": (target_ip, 5060),
             "cseq_num": 101
         }
 
         branch = f"z9hG4bK{os.urandom(5).hex()}"
         invite = (
             f"INVITE {remote_uri} SIP/2.0\r\n"
-            f"Via: SIP/2.0/{transport} {self.bind_ip}:{self.sip_port};branch={branch}\r\n"
+            f"Via: SIP/2.0/{transport} {self.bind_ip}:{self.sip_port};branch={branch};rport\r\n"
             f"Max-Forwards: 70\r\n"
             f"From: \"PC Handsfree\" <sip:handsfree@{self.bind_ip}:{self.sip_port}>;tag={local_tag}\r\n"
             f"To: <sip:{extension}@{target_ip}>\r\n"
@@ -425,7 +435,7 @@ class SIPServer:
             f"{sdp}"
         )
 
-        self.log(f"Enviando INVITE para activar altavoz de {extension} en {target_ip}:{target_port} vía {transport}...")
+        self.log(f"Enviando INVITE para activar altavoz de {extension} en {target_ip} vía {transport}...")
         self._send_to_phone(invite)
 
     def hangup_call(self):
@@ -465,12 +475,12 @@ class SIPServer:
     # UTILIDADES DE MENSAJERÍA
     # ==========================
 
-    def _send_to_phone(self, msg_str: str):
+    def _send_to_phone(self, msg_str: str, sock: Optional[socket.socket] = None):
         if not self.phone_info:
             return
-        addr = (self.phone_info["ip"], self.phone_info["port"])
+        addr = (self.phone_info["ip"], 5060)
         transport = self.phone_info.get("transport", "TCP")
-        self._send_raw(msg_str, addr, transport)
+        self._send_raw(msg_str, addr, transport, sock=sock or self.phone_tcp_sock)
 
     def _send_raw(self, msg_str: str, addr: tuple, transport: str, sock: Optional[socket.socket] = None):
         data = msg_str.encode("utf-8")
@@ -482,18 +492,30 @@ class SIPServer:
                 except Exception as e:
                     self.log(f"Error enviando UDP a {addr}: {e}")
         else:  # TCP
-            try:
-                if sock and sock != self._tcp_sock:
-                    sock.sendall(data)
-                else:
-                    # Conectar socket efímero si no tenemos socket abierto
+            # 1. Intentar enviar primero por el socket TCP existente (conexión viva del teléfono)
+            target_sock = sock or self.phone_tcp_sock
+            sent = False
+            if target_sock:
+                try:
+                    target_sock.sendall(data)
+                    sent = True
+                except Exception as e:
+                    self.log(f"Socket TCP persistente no disponible ({e}), intentando nueva conexión...")
+                    self.phone_tcp_sock = None
+
+            # 2. Si no se pudo enviar, abrir nueva conexión TCP hacia el puerto 5060 del teléfono
+            if not sent:
+                target_ip = addr[0]
+                try:
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    s.settimeout(2.0)
-                    s.connect(addr)
+                    s.settimeout(2.5)
+                    s.connect((target_ip, 5060))
                     s.sendall(data)
-                    s.close()
-            except Exception as e:
-                self.log(f"Error enviando TCP a {addr}: {e}")
+                    self.phone_tcp_sock = s
+                    sent = True
+                    self.log(f"Nueva conexión TCP establecida con {target_ip}:5060")
+                except Exception as e:
+                    self.log(f"Error enviando TCP a {target_ip}:5060: {e}")
 
     def _generate_sdp(self, ip: str, rtp_port: int) -> str:
         lines = [

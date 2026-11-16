@@ -472,6 +472,7 @@ class MainWindow(QMainWindow):
 
     def _handle_call_state(self, state: str, info: dict):
         if state == "connected":
+            self.btn_call.setEnabled(True)
             self.btn_call.setText("🔴 FINALIZAR MANOS LIBRES (COLGAR)")
             self.btn_call.setObjectName("btnCallHangup")
             self.chip_call.setText("🟢 Manos Libres Activo")
@@ -531,11 +532,25 @@ class MainWindow(QMainWindow):
         if not self.sip_server.is_in_call:
             ext = self.txt_ext.text().strip() or "8831"
             try:
+                self.btn_call.setText("⌛ CONECTANDO ALTAVOZ...")
+                self.btn_call.setEnabled(False)
+                self._refresh_call_button_style()
                 self.sip_server.start_handsfree_call(extension=ext)
+                QTimer.singleShot(6000, self._check_call_timeout)
             except Exception as e:
+                self.btn_call.setText("📞 CONECTAR ALTAVOZ (INICIAR MANOS LIBRES)")
+                self.btn_call.setEnabled(True)
+                self._refresh_call_button_style()
                 QMessageBox.warning(self, "Aviso", str(e))
         else:
             self.sip_server.hangup_call()
+
+    def _check_call_timeout(self):
+        if self.sip_server and not self.sip_server.is_in_call:
+            if not self.btn_call.isEnabled() or "CONECTANDO" in self.btn_call.text():
+                self.btn_call.setText("📞 CONECTAR ALTAVOZ (INICIAR MANOS LIBRES)")
+                self.btn_call.setEnabled(True)
+                self._refresh_call_button_style()
 
     def _on_mute_clicked(self, checked: bool):
         self.audio_bridge.is_muted = checked
