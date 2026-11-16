@@ -20,6 +20,8 @@ env/
 
 # Directorios de referencia externa
 cisco_tftp_example/
+vbcable.zip
+vbcable_installer/
 
 # IDEs
 .vscode/
