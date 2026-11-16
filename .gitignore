@@ -1,0 +1,27 @@
+# Credenciales y archivos sensibles
+PASS_SERVICES.md
+config.json
+
+# Compilación PyInstaller
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+
+# Entornos virtuales
+venv/
+.env/
+env/
+
+# Directorios de referencia externa
+cisco_tftp_example/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
