@@ -21,7 +21,7 @@ DEFAULT_CONFIG = {
     "codec": "PCMU",   # PCMU (G.711u), PCMA (G.711a)
     "input_gain": 1.0,
     "output_gain": 1.0,
-    "auto_connect_on_register": False,
+    "auto_connect_on_register": True,
     "log_level": "INFO"
 }
 

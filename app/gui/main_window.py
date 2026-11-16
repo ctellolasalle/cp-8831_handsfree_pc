@@ -305,6 +305,11 @@ class MainWindow(QMainWindow):
         self.chk_auto_answer.setChecked(self.cfg.get("auto_answer", True))
         form_layout.addWidget(self.chk_auto_answer, 5, 0, 1, 2)
 
+        # Auto Connect (Cero Intervención)
+        self.chk_auto_connect = QCheckBox("Conexión Automática: Activar manos libres de inmediato al registrarse el Cisco (Cero Intervención)")
+        self.chk_auto_connect.setChecked(self.cfg.get("auto_connect_on_register", True))
+        form_layout.addWidget(self.chk_auto_connect, 6, 0, 1, 2)
+
         layout.addWidget(form_box)
 
         # Botones de Acción
@@ -451,6 +456,20 @@ class MainWindow(QMainWindow):
         self._refresh_chip_styles()
         self._post_log(f"✅ Cisco CP-8831 registrado exitosamente como extensión {ext} ({ip})")
 
+        # Modo Cero Intervención: Conectar manos libres automáticamente al registrarse
+        if self.cfg.get("auto_connect_on_register", True):
+            if self.sip_server and not self.sip_server.is_in_call:
+                self._post_log("🚀 Modo Cero Intervención: Conectando manos libres automáticamente...")
+                QTimer.singleShot(1000, self._auto_connect_handsfree)
+
+    def _auto_connect_handsfree(self):
+        if self.sip_server and not self.sip_server.is_in_call:
+            ext = self.txt_ext.text().strip() or "8831"
+            try:
+                self.sip_server.start_handsfree_call(extension=ext)
+            except Exception as e:
+                self._post_log(f"Aviso auto-conexión: {e}")
+
     def _handle_call_state(self, state: str, info: dict):
         if state == "connected":
             self.btn_call.setText("🔴 FINALIZAR MANOS LIBRES (COLGAR)")
@@ -560,11 +579,30 @@ class MainWindow(QMainWindow):
         self.combo_audio_in.clear()
         self.combo_audio_out.clear()
 
-        for d in devs["inputs"]:
-            self.combo_audio_in.addItem(d["name"], d["id"])
+        cable_in_idx = -1
+        cable_out_idx = -1
 
-        for d in devs["outputs"]:
+        for i, d in enumerate(devs["inputs"]):
+            self.combo_audio_in.addItem(d["name"], d["id"])
+            raw = d.get("raw_name", "").upper()
+            # CABLE Output es el audio que Teams envía hacia el altavoz del Cisco
+            if "CABLE OUTPUT" in raw or "CABLE" in raw:
+                cable_in_idx = i
+
+        for i, d in enumerate(devs["outputs"]):
             self.combo_audio_out.addItem(d["name"], d["id"])
+            raw = d.get("raw_name", "").upper()
+            # CABLE Input es el micrófono virtual donde entra el audio del Cisco
+            if "CABLE INPUT" in raw or "CABLE" in raw:
+                cable_out_idx = i
+
+        # Si se detecta VB-Audio Cable, autoseleccionarlo sin intervención del usuario
+        if cable_in_idx >= 0:
+            self.combo_audio_in.setCurrentIndex(cable_in_idx)
+            self._post_log("🎧 Autoseleccionado CABLE Output para Altavoz Cisco")
+        if cable_out_idx >= 0:
+            self.combo_audio_out.setCurrentIndex(cable_out_idx)
+            self._post_log("🎙️ Autoseleccionado CABLE Input para Micrófono Cisco")
 
         self._post_log(f"Dispositivos de sonido detectados: {len(devs['inputs'])} entradas, {len(devs['outputs'])} salidas")
 
@@ -609,6 +647,7 @@ class MainWindow(QMainWindow):
         self.cfg["sip_port"] = int(self.txt_sip_port.text().strip() or 5060)
         self.cfg["transport"] = self.combo_transport.currentData()
         self.cfg["auto_answer"] = self.chk_auto_answer.isChecked()
+        self.cfg["auto_connect_on_register"] = self.chk_auto_connect.isChecked()
         self.cfg["local_ip"] = self.combo_ip.currentText()
 
         save_config(self.cfg)
