@@ -597,27 +597,45 @@ class MainWindow(QMainWindow):
         cable_in_idx = -1
         cable_out_idx = -1
 
+        # 1. Poblar Entrada (Sonido hacia Altavoz Cisco)
         for i, d in enumerate(devs["inputs"]):
             self.combo_audio_in.addItem(d["name"], d["id"])
             raw = d.get("raw_name", "").upper()
-            # CABLE Output es el audio que Teams envía hacia el altavoz del Cisco
-            if "CABLE OUTPUT" in raw or "CABLE" in raw:
+            if "CABLE OUTPUT" in raw:
+                cable_in_idx = i
+            elif "VOICEMEETER OUT B1" in raw:
                 cable_in_idx = i
 
+        if cable_in_idx < 0:
+            for i, d in enumerate(devs["inputs"]):
+                raw = d.get("raw_name", "").upper()
+                if "VOICEMEETER" in raw:
+                    cable_in_idx = i
+                    break
+
+        # 2. Poblar Salida (Micrófono Cisco hacia PC)
         for i, d in enumerate(devs["outputs"]):
             self.combo_audio_out.addItem(d["name"], d["id"])
             raw = d.get("raw_name", "").upper()
-            # CABLE Input es el micrófono virtual donde entra el audio del Cisco
-            if "CABLE INPUT" in raw or "CABLE" in raw:
+            if "CABLE INPUT" in raw:
+                cable_out_idx = i
+            elif "VOICEMEETER INPUT" in raw:
                 cable_out_idx = i
 
-        # Si se detecta VB-Audio Cable, autoseleccionarlo sin intervención del usuario
+        if cable_out_idx < 0:
+            for i, d in enumerate(devs["outputs"]):
+                raw = d.get("raw_name", "").upper()
+                if "VOICEMEETER" in raw:
+                    cable_out_idx = i
+                    break
+
+        # Si se detecta dispositivo virtual (VB-Cable o Voicemeeter), autoseleccionarlo
         if cable_in_idx >= 0:
             self.combo_audio_in.setCurrentIndex(cable_in_idx)
-            self._post_log("🎧 Autoseleccionado CABLE Output para Altavoz Cisco")
+            self._post_log(f"🎧 Autoseleccionado {self.combo_audio_in.currentText()} para Altavoz Cisco")
         if cable_out_idx >= 0:
             self.combo_audio_out.setCurrentIndex(cable_out_idx)
-            self._post_log("🎙️ Autoseleccionado CABLE Input para Micrófono Cisco")
+            self._post_log(f"🎙️ Autoseleccionado {self.combo_audio_out.currentText()} para Micrófono Cisco")
 
         self._post_log(f"Dispositivos de sonido detectados: {len(devs['inputs'])} entradas, {len(devs['outputs'])} salidas")
 
